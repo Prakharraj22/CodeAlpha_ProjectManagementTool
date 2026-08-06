@@ -2,17 +2,40 @@
 node_modules/
 client/node_modules/
 
-# Production build
+# Production builds & dist outputs
+dist/
 client/dist/
+build/
 
-# SQLite Database
+# Database data & persistence files
 *.sqlite
 database.sqlite
+server/data/
 
-# Logs & Environment
+# Logs & Debugging
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
+lerna-debug.log*
+*.log
+
+# Environment variables & secrets
 .env
-server/data/
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+*.pem
+*.key
+*.cert
+
+# OS & Editor generated files
 .DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.swp

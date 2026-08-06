@@ -1,7 +1,7 @@
 import jwt from 'jsonwebtoken';
 import { db } from '../db.js';
 
-export const JWT_SECRET = process.env.JWT_SECRET || 'tasksync-super-secret-key-2026';
+export const JWT_SECRET = process.env.JWT_SECRET || 'CHANGE_THIS_TO_A_SECURE_RANDOM_SECRET_KEY_IN_PRODUCTION';
 
 export const authenticateToken = (req, res, next) => {
   const authHeader = req.headers['authorization'];
