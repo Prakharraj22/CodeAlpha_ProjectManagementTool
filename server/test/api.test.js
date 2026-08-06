@@ -1,4 +1,6 @@
+// TaskPulse API Tests
 import http from 'http';
+import { describe, it } from 'node:test';
 
 // Simple Integration Test Suite runner for TaskPulse API
 async function runTests() {

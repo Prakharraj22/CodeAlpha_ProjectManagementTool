@@ -1,3 +1,4 @@
+// TaskPulse WebSocket Server
 import { Server } from 'socket.io';
 
 let io = null;

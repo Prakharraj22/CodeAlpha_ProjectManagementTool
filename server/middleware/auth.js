@@ -1,3 +1,4 @@
+// TaskPulse Auth Middleware
 import jwt from 'jsonwebtoken';
 import { db } from '../db.js';
 

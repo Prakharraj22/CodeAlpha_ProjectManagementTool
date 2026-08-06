@@ -1,5 +1,6 @@
 // Validation Helper Utilities for Production API Security
 
+// TaskPulse Validation Middleware
 export const validateRegistration = (req, res, next) => {
   const { name, email, password } = req.body;
 
