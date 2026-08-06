@@ -1,442 +1,384 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useAuth } from '../context/AuthContext';
-import { X, Send, Trash2, CheckSquare, Plus, Activity, Clock, Tag } from 'lucide-react';
+import { X, Calendar, User, Tag, Flag, CheckSquare, Plus, Trash2, MessageSquare, Send, Edit3, Save } from 'lucide-react';
+import { PriorityBadge, StatusBadge } from './ui/Badge';
+import Avatar from './ui/Avatar';
 
-export default function TaskModal({ task, projectMembers = [], isOpen, onClose, onUpdateTask, onDeleteTask }) {
-  const { user, token } = useAuth();
-  const [title, setTitle] = useState('');
-  const [description, setDescription] = useState('');
-  const [status, setStatus] = useState('todo');
-  const [priority, setPriority] = useState('medium');
-  const [assignedTo, setAssignedTo] = useState('');
-  const [dueDate, setDueDate] = useState('');
-  const [tagsInput, setTagsInput] = useState('');
+// Correct API paths:
+// GET    /api/comments/task/:taskId
+// POST   /api/comments/task/:taskId
+// GET    /api/projects/:projectId/tasks/:taskId/subtasks  (via task data)
+// POST   /api/projects/:projectId/tasks/:taskId/subtasks
+// PATCH  /api/projects/:projectId/tasks/:taskId/subtasks/:subId/toggle
+// DELETE /api/projects/:projectId/tasks/:taskId/subtasks/:subId
+// PATCH  /api/projects/:projectId/tasks/:taskId  (update task)
 
-  const [subtasks, setSubtasks] = useState([]);
-  const [newSubtaskTitle, setNewSubtaskTitle] = useState('');
+const STATUSES   = ['todo', 'in_progress', 'review', 'done'];
+const PRIORITIES = ['low', 'medium', 'high', 'urgent'];
 
-  const [comments, setComments] = useState([]);
+function timeAgo(d) {
+  const diff = (Date.now() - new Date(d)) / 1000;
+  if (diff < 60)    return 'just now';
+  if (diff < 3600)  return `${Math.floor(diff / 60)}m ago`;
+  if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
+  return `${Math.floor(diff / 86400)}d ago`;
+}
+
+export default function TaskModal({ task, projectId, projectMembers = [], onClose, onUpdateTask, onDeleteTask }) {
+  const { token, user } = useAuth();
+  const [taskData, setTaskData]   = useState(task);
+  const [comments, setComments]   = useState([]);
   const [newComment, setNewComment] = useState('');
-  const [commentLoading, setCommentLoading] = useState(false);
-  const [saving, setSaving] = useState(false);
+  const [subtasks, setSubtasks]   = useState([]);
+  const [newSubtask, setNewSubtask] = useState('');
+  const [posting, setPosting]     = useState(false);
+  const [editing, setEditing]     = useState(false);
+  const [editTitle, setEditTitle] = useState(task?.title || '');
+  const [editDesc, setEditDesc]   = useState(task?.description || '');
+  const commentsEndRef             = useRef(null);
+
+  // Load comments & subtasks using correct API paths
+  useEffect(() => {
+    if (!task || !token) return;
+    // Comments: /api/comments/task/:taskId
+    fetch(`/api/comments/task/${task.id}`, { headers: { Authorization: `Bearer ${token}` } })
+      .then(r => r.json()).then(d => { if (d.comments) setComments(d.comments); }).catch(console.error);
+    // Subtasks come embedded in the task data already
+    if (task.subtasks) setSubtasks(task.subtasks);
+  }, [task?.id, token]);
 
   useEffect(() => {
-    if (task) {
-      setTitle(task.title || '');
-      setDescription(task.description || '');
-      setStatus(task.status || 'todo');
-      setPriority(task.priority || 'medium');
-      setAssignedTo(task.assigned_to || '');
-      setDueDate(task.due_date || '');
-      setSubtasks(task.subtasks || []);
-      setTagsInput(task.tags ? task.tags.join(', ') : '');
+    if (!task) return;
+    setTaskData(task);
+    setEditTitle(task.title || '');
+    setEditDesc(task.description || '');
+  }, [task]);
 
-      fetch(`/api/comments/task/${task.id}`, {
-        headers: { 'Authorization': `Bearer ${token}` }
-      })
-        .then(res => res.json())
-        .then(data => {
-          if (data.comments) setComments(data.comments);
-        })
-        .catch(console.error);
-    }
-  }, [task, token]);
+  // ESC to close
+  useEffect(() => {
+    const handle = (e) => { if (e.key === 'Escape') onClose(); };
+    window.addEventListener('keydown', handle);
+    return () => window.removeEventListener('keydown', handle);
+  }, [onClose]);
 
-  if (!isOpen || !task) return null;
+  useEffect(() => {
+    commentsEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [comments]);
 
-  const handleSave = async (e) => {
-    e.preventDefault();
-    setSaving(true);
-    try {
-      const parsedTags = tagsInput.split(',').map(t => t.trim()).filter(Boolean);
-      await onUpdateTask(task.id, {
-        title,
-        description,
-        status,
-        priority,
-        tags: parsedTags,
-        assigned_to: assignedTo || null,
-        due_date: dueDate || null
-      });
-      onClose();
-    } catch (err) {
-      console.error('Failed to update task:', err);
-    } finally {
-      setSaving(false);
-    }
+  if (!task) return null;
+
+  const updateField = async (field, value) => {
+    // Map frontend field names to backend field names
+    const backendField = field === 'assignee_id' ? 'assigned_to' : field;
+    setTaskData(p => ({ ...p, [field]: value }));
+    try { await onUpdateTask(task.id, { [backendField]: value }); }
+    catch (e) { console.error(e); }
   };
 
-  const handleAddSubtask = async (e) => {
-    e.preventDefault();
-    if (!newSubtaskTitle.trim()) return;
-
-    try {
-      const res = await fetch(`/api/projects/${task.project_id}/tasks/${task.id}/subtasks`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
-        body: JSON.stringify({ title: newSubtaskTitle.trim() })
-      });
-      const data = await res.json();
-      if (res.ok && data.task) {
-        setSubtasks(data.task.subtasks || []);
-        setNewSubtaskTitle('');
-      }
-    } catch (err) {
-      console.error('Failed to add subtask:', err);
-    }
-  };
-
-  const handleToggleSubtask = async (subtaskId) => {
-    try {
-      const res = await fetch(`/api/projects/${task.project_id}/tasks/${task.id}/subtasks/${subtaskId}/toggle`, {
-        method: 'PATCH',
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
-      const data = await res.json();
-      if (res.ok && data.task) {
-        setSubtasks(data.task.subtasks || []);
-      }
-    } catch (err) {
-      console.error('Failed to toggle subtask:', err);
-    }
-  };
-
-  const handleDeleteSubtask = async (subtaskId) => {
-    try {
-      const res = await fetch(`/api/projects/${task.project_id}/tasks/${task.id}/subtasks/${subtaskId}`, {
-        method: 'DELETE',
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
-      const data = await res.json();
-      if (res.ok && data.task) {
-        setSubtasks(data.task.subtasks || []);
-      }
-    } catch (err) {
-      console.error('Failed to delete subtask:', err);
-    }
+  const handleSaveEdit = async () => {
+    await onUpdateTask(task.id, { title: editTitle, description: editDesc });
+    setTaskData(p => ({ ...p, title: editTitle, description: editDesc }));
+    setEditing(false);
   };
 
   const handlePostComment = async (e) => {
     e.preventDefault();
     if (!newComment.trim()) return;
-
-    setCommentLoading(true);
+    setPosting(true);
     try {
+      // Correct path: /api/comments/task/:taskId
       const res = await fetch(`/api/comments/task/${task.id}`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
-        body: JSON.stringify({ content: newComment })
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ content: newComment.trim() })
       });
       const data = await res.json();
-      if (res.ok) {
-        setComments(prev => [...prev, data.comment]);
-        setNewComment('');
-      }
-    } catch (err) {
-      console.error('Failed to post comment:', err);
-    } finally {
-      setCommentLoading(false);
-    }
+      if (data.comment) { setComments(p => [...p, data.comment]); setNewComment(''); }
+    } catch (e) { console.error(e); }
+    finally { setPosting(false); }
   };
 
-  const completedCount = subtasks.filter(s => s.completed).length;
-  const progressPercent = subtasks.length > 0 ? Math.round((completedCount / subtasks.length) * 100) : 0;
+  const handleAddSubtask = async (e) => {
+    e.preventDefault();
+    if (!newSubtask.trim()) return;
+    try {
+      // Correct path: /api/projects/:pid/tasks/:tid/subtasks
+      const res = await fetch(`/api/projects/${projectId}/tasks/${task.id}/subtasks`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ title: newSubtask.trim() })
+      });
+      const data = await res.json();
+      // Backend returns { task } with updated subtasks array
+      if (data.task?.subtasks) { setSubtasks(data.task.subtasks); setNewSubtask(''); }
+    } catch (e) { console.error(e); }
+  };
+
+  const handleToggleSubtask = async (sub) => {
+    setSubtasks(p => p.map(s => s.id === sub.id ? { ...s, completed: !s.completed } : s));
+    try {
+      // Correct path: /api/projects/:pid/tasks/:tid/subtasks/:sid/toggle
+      const res = await fetch(`/api/projects/${projectId}/tasks/${task.id}/subtasks/${sub.id}/toggle`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }
+      });
+      const data = await res.json();
+      if (data.task?.subtasks) setSubtasks(data.task.subtasks);
+    } catch (e) { console.error(e); }
+  };
+
+  const handleDeleteSubtask = async (subId) => {
+    setSubtasks(p => p.filter(s => s.id !== subId));
+    try {
+      // Correct path: /api/projects/:pid/tasks/:tid/subtasks/:sid
+      await fetch(`/api/projects/${projectId}/tasks/${task.id}/subtasks/${subId}`, {
+        method: 'DELETE', headers: { Authorization: `Bearer ${token}` }
+      });
+    } catch (e) { console.error(e); }
+  };
+
+  const completedSubs = subtasks.filter(s => s.completed).length;
+
+  const sectionLabel = { fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.07em', color: 'var(--text-3)', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 6 };
+  const selectStyle  = { background: 'var(--surface-3)', border: '1px solid var(--border)', borderRadius: 'var(--radius-md)', padding: '6px 10px', color: 'var(--text-1)', fontSize: 12, cursor: 'pointer', outline: 'none', fontFamily: 'inherit', width: '100%' };
 
   return (
-    <div
-      style={{
-        position: 'fixed',
-        top: 0, left: 0, right: 0, bottom: 0,
-        background: 'rgba(0, 0, 0, 0.7)',
-        backdropFilter: 'blur(10px)',
-        zIndex: 1000,
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        padding: '20px'
-      }}
-      onClick={onClose}
-    >
-      <div
-        className="glass-panel animate-fade-in"
-        style={{
-          background: 'var(--bg-modal)',
-          border: '1px solid var(--border-highlight)',
-          borderRadius: '20px',
-          width: '100%',
-          maxWidth: '900px',
-          maxHeight: '90vh',
-          display: 'grid',
-          gridTemplateColumns: '1fr 360px',
-          overflow: 'hidden',
-          boxShadow: 'var(--shadow-lg)'
-        }}
-        onClick={(e) => e.stopPropagation()}
-      >
-        {/* Left Side: Task Details & Subtasks */}
-        <div style={{ padding: '28px', borderRight: '1px solid var(--border-color)', overflowY: 'auto' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
-            <span style={{ fontSize: '12px', fontWeight: 700, color: 'var(--primary)', letterSpacing: '0.05em', textTransform: 'uppercase' }}>
-              Task Card Details
-            </span>
+    <>
+      {/* Backdrop */}
+      <div className="task-panel-overlay" onClick={onClose} />
+      {/* Panel */}
+      <div className="task-panel" role="dialog" aria-modal="true" aria-label={`Task: ${taskData.title}`}>
+        {/* Panel header */}
+        <div style={{ padding: '16px 24px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <PriorityBadge priority={taskData.priority} />
+            <StatusBadge status={taskData.status} />
+          </div>
+          <div style={{ display: 'flex', gap: 6 }}>
             <button
-              onClick={() => onDeleteTask(task.id)}
-              id="delete-task-btn"
-              style={{ background: 'none', border: 'none', color: 'var(--accent-rose)', fontSize: '13px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px', fontWeight: 600 }}
+              className="btn btn-danger btn-sm"
+              onClick={() => { if (window.confirm('Delete this task?')) { onDeleteTask(task.id); onClose(); } }}
+              aria-label="Delete task"
+              style={{ gap: 5 }}
             >
-              <Trash2 size={15} /> Delete Task
+              <Trash2 size={13} /> Delete
+            </button>
+            <button onClick={onClose} className="btn btn-icon" aria-label="Close task panel" style={{ width: 32, height: 32 }}>
+              <X size={16} />
             </button>
           </div>
+        </div>
 
-          <form onSubmit={handleSave}>
-            <div style={{ marginBottom: '16px' }}>
-              <label style={{ display: 'block', fontSize: '12px', color: 'var(--text-muted)', marginBottom: '6px', fontWeight: 600 }}>Title</label>
-              <input
-                type="text"
-                className="input-field"
-                value={title}
-                onChange={(e) => setTitle(e.target.value)}
-                required
-                style={{ fontSize: '16px', fontWeight: 700 }}
-              />
-            </div>
-
-            <div style={{ marginBottom: '20px' }}>
-              <label style={{ display: 'block', fontSize: '12px', color: 'var(--text-muted)', marginBottom: '6px', fontWeight: 600 }}>Description</label>
-              <textarea
-                className="input-field"
-                rows={4}
-                value={description}
-                onChange={(e) => setDescription(e.target.value)}
-                placeholder="Add detailed task instructions..."
-                style={{ resize: 'vertical' }}
-              />
-            </div>
-
-            {/* Field Controls Grid */}
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '20px' }}>
-              <div>
-                <label style={{ display: 'block', fontSize: '12px', color: 'var(--text-muted)', marginBottom: '6px', fontWeight: 600 }}>Status Column</label>
-                <select
-                  className="input-field"
-                  value={status}
-                  onChange={(e) => setStatus(e.target.value)}
-                >
-                  <option value="todo">To Do</option>
-                  <option value="in_progress">In Progress</option>
-                  <option value="review">Under Review</option>
-                  <option value="done">Completed</option>
-                </select>
-              </div>
-
-              <div>
-                <label style={{ display: 'block', fontSize: '12px', color: 'var(--text-muted)', marginBottom: '6px', fontWeight: 600 }}>Priority Level</label>
-                <select
-                  className="input-field"
-                  value={priority}
-                  onChange={(e) => setPriority(e.target.value)}
-                >
-                  <option value="low">Low</option>
-                  <option value="medium">Medium</option>
-                  <option value="high">High</option>
-                  <option value="urgent">Urgent</option>
-                </select>
-              </div>
-
-              <div>
-                <label style={{ display: 'block', fontSize: '12px', color: 'var(--text-muted)', marginBottom: '6px', fontWeight: 600 }}>Assigned Member</label>
-                <select
-                  className="input-field"
-                  value={assignedTo}
-                  onChange={(e) => setAssignedTo(e.target.value)}
-                >
-                  <option value="">Unassigned</option>
-                  {projectMembers.map(m => (
-                    <option key={m.user_id} value={m.user_id}>
-                      {m.name} ({m.email})
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div>
-                <label style={{ display: 'block', fontSize: '12px', color: 'var(--text-muted)', marginBottom: '6px', fontWeight: 600 }}>Due Date</label>
+        {/* Panel body — two columns */}
+        <div style={{ flex: 1, display: 'grid', gridTemplateColumns: '1fr 340px', overflow: 'hidden' }}>
+          {/* LEFT — Details */}
+          <div style={{ overflowY: 'auto', padding: '24px' }}>
+            {/* Title */}
+            {editing ? (
+              <div style={{ marginBottom: 20 }}>
                 <input
-                  type="date"
-                  className="input-field"
-                  value={dueDate}
-                  onChange={(e) => setDueDate(e.target.value)}
+                  className="input"
+                  value={editTitle}
+                  onChange={e => setEditTitle(e.target.value)}
+                  style={{ fontSize: 18, fontWeight: 700, marginBottom: 10 }}
+                  autoFocus
+                />
+                <textarea
+                  className="input textarea"
+                  value={editDesc}
+                  onChange={e => setEditDesc(e.target.value)}
+                  rows={3}
+                  placeholder="Description..."
+                  style={{ fontSize: 14 }}
+                />
+                <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
+                  <button className="btn btn-primary btn-sm" onClick={handleSaveEdit} style={{ gap: 5 }}>
+                    <Save size={13} /> Save
+                  </button>
+                  <button className="btn btn-secondary btn-sm" onClick={() => setEditing(false)}>Cancel</button>
+                </div>
+              </div>
+            ) : (
+              <div style={{ marginBottom: 20 }}>
+                <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8, marginBottom: 8 }}>
+                  <h2 style={{ fontSize: 20, fontWeight: 800, color: 'var(--text-1)', margin: 0, lineHeight: 1.3, flex: 1, letterSpacing: '-0.02em' }}>
+                    {taskData.title}
+                  </h2>
+                  <button
+                    className="btn btn-icon btn-sm"
+                    onClick={() => setEditing(true)}
+                    aria-label="Edit task title and description"
+                    style={{ flexShrink: 0, marginTop: 2 }}
+                    title="Edit"
+                  >
+                    <Edit3 size={14} />
+                  </button>
+                </div>
+                {taskData.description ? (
+                  <p style={{ fontSize: 14, color: 'var(--text-2)', lineHeight: 1.65, margin: 0 }}>{taskData.description}</p>
+                ) : (
+                  <p style={{ fontSize: 13, color: 'var(--text-3)', fontStyle: 'italic', margin: 0 }}>No description — click edit to add one.</p>
+                )}
+              </div>
+            )}
+
+            {/* Properties grid */}
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, marginBottom: 24, background: 'var(--surface-2)', border: '1px solid var(--border)', borderRadius: 'var(--radius-md)', padding: 16 }}>
+              {/* Status */}
+              <div>
+                <div style={sectionLabel}><Flag size={11} /> Status</div>
+                <select style={selectStyle} value={taskData.status} onChange={e => updateField('status', e.target.value)} aria-label="Status">
+                  {STATUSES.map(s => <option key={s} value={s}>{s.replace('_', ' ')}</option>)}
+                </select>
+              </div>
+
+              {/* Priority */}
+              <div>
+                <div style={sectionLabel}><Flag size={11} /> Priority</div>
+                <select style={selectStyle} value={taskData.priority} onChange={e => updateField('priority', e.target.value)} aria-label="Priority">
+                  {PRIORITIES.map(p => <option key={p} value={p}>{p}</option>)}
+                </select>
+              </div>
+
+              {/* Assignee */}
+              <div>
+                <div style={sectionLabel}><User size={11} /> Assignee</div>
+                <select style={selectStyle} value={taskData.assignee_id || ''} onChange={e => updateField('assignee_id', e.target.value || null)} aria-label="Assignee">
+                  <option value="">Unassigned</option>
+                  {projectMembers.map(m => <option key={m.user_id} value={m.user_id}>{m.name}</option>)}
+                </select>
+              </div>
+
+              {/* Due date */}
+              <div>
+                <div style={sectionLabel}><Calendar size={11} /> Due date</div>
+                <input
+                  type="date" style={selectStyle}
+                  value={taskData.due_date || ''}
+                  onChange={e => updateField('due_date', e.target.value || null)}
+                  aria-label="Due date"
                 />
               </div>
             </div>
 
-            <div style={{ marginBottom: '20px' }}>
-              <label style={{ display: 'block', fontSize: '12px', color: 'var(--text-muted)', marginBottom: '6px', fontWeight: 600 }}>Tags (comma-separated)</label>
-              <input
-                type="text"
-                className="input-field"
-                placeholder="Frontend, WebSockets, Bug"
-                value={tagsInput}
-                onChange={(e) => setTagsInput(e.target.value)}
-              />
-            </div>
-
-            {/* Subtask Checklist Section */}
-            <div style={{ marginBottom: '24px', paddingTop: '16px', borderTop: '1px solid var(--border-color)' }}>
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '10px' }}>
-                <h4 style={{ fontSize: '14px', fontWeight: 700, color: 'var(--text-main)', margin: 0, display: 'flex', alignItems: 'center', gap: '6px' }}>
-                  <CheckSquare size={16} style={{ color: 'var(--primary)' }} /> Subtask Checklist ({completedCount}/{subtasks.length})
-                </h4>
-                <span style={{ fontSize: '12px', fontWeight: 700, color: 'var(--primary)' }}>
-                  {progressPercent}%
-                </span>
+            {/* Tags */}
+            {taskData.tags && taskData.tags.length > 0 && (
+              <div style={{ marginBottom: 24 }}>
+                <div style={sectionLabel}><Tag size={11} /> Tags</div>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                  {taskData.tags.map((tag, i) => <span key={i} className="tag-chip">#{tag}</span>)}
+                </div>
               </div>
+            )}
 
-              {/* Progress Bar */}
-              <div style={{ width: '100%', height: '6px', borderRadius: '4px', background: 'rgba(148, 163, 184, 0.15)', overflow: 'hidden', marginBottom: '14px' }}>
-                <div style={{ height: '100%', width: `${progressPercent}%`, background: 'var(--primary)', transition: 'width 0.3s ease' }} />
+            {/* Subtasks */}
+            <div>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+                <div style={sectionLabel}>
+                  <CheckSquare size={11} />
+                  Subtasks {subtasks.length > 0 && <span style={{ color: 'var(--primary)' }}>({completedSubs}/{subtasks.length})</span>}
+                </div>
               </div>
-
-              {/* List of Subtasks */}
-              <div style={{ marginBottom: '12px' }}>
-                {subtasks.map(st => (
-                  <div key={st.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '6px 8px', borderRadius: '8px', background: 'rgba(148, 163, 184, 0.05)', marginBottom: '6px' }}>
-                    <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontSize: '13px', color: st.completed ? 'var(--text-muted)' : 'var(--text-main)', textDecoration: st.completed ? 'line-through' : 'none' }}>
-                      <input
-                        type="checkbox"
-                        checked={st.completed}
-                        onChange={() => handleToggleSubtask(st.id)}
-                        style={{ accentColor: 'var(--primary)', cursor: 'pointer' }}
-                      />
-                      {st.title}
+              {subtasks.length > 0 && (
+                <div style={{ marginBottom: 10 }}>
+                  <div className="progress-bar" style={{ marginBottom: 12 }}>
+                    <div className="progress-bar-fill success" style={{ width: `${subtasks.length > 0 ? (completedSubs / subtasks.length) * 100 : 0}%` }} />
+                  </div>
+                </div>
+              )}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 10 }}>
+                {subtasks.map(sub => (
+                  <div key={sub.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px', background: 'var(--surface-2)', border: '1px solid var(--border)', borderRadius: 'var(--radius-md)' }}>
+                    <input
+                      type="checkbox" id={`sub-${sub.id}`}
+                      checked={sub.completed} onChange={() => handleToggleSubtask(sub)}
+                      style={{ accentColor: 'var(--primary)', width: 15, height: 15, cursor: 'pointer', flexShrink: 0 }}
+                    />
+                    <label htmlFor={`sub-${sub.id}`} style={{ flex: 1, fontSize: 13, color: sub.completed ? 'var(--text-3)' : 'var(--text-1)', textDecoration: sub.completed ? 'line-through' : 'none', cursor: 'pointer' }}>
+                      {sub.title}
                     </label>
-                    <button
-                      type="button"
-                      onClick={() => handleDeleteSubtask(st.id)}
-                      style={{ background: 'none', border: 'none', color: 'var(--text-dim)', cursor: 'pointer' }}
-                    >
-                      <X size={14} />
+                    <button onClick={() => handleDeleteSubtask(sub.id)} className="btn btn-icon" style={{ width: 24, height: 24, color: 'var(--text-3)' }} aria-label="Delete subtask">
+                      <X size={12} />
                     </button>
                   </div>
                 ))}
               </div>
-
-              {/* Add New Subtask Input */}
-              <div style={{ display: 'flex', gap: '8px' }}>
+              <form onSubmit={handleAddSubtask} style={{ display: 'flex', gap: 8 }}>
                 <input
-                  type="text"
-                  className="input-field"
-                  placeholder="Add a subtask item..."
-                  value={newSubtaskTitle}
-                  onChange={(e) => setNewSubtaskTitle(e.target.value)}
-                  style={{ fontSize: '13px', padding: '0.45rem 0.8rem' }}
+                  type="text" className="input" style={{ fontSize: 13, flex: 1 }}
+                  placeholder="Add a subtask..."
+                  value={newSubtask} onChange={e => setNewSubtask(e.target.value)}
+                  aria-label="New subtask"
                 />
-                <button
-                  type="button"
-                  onClick={handleAddSubtask}
-                  className="btn-secondary"
-                  style={{ padding: '0.45rem 0.8rem', fontSize: '13px' }}
-                >
-                  <Plus size={14} /> Add
+                <button type="submit" className="btn btn-secondary btn-sm" disabled={!newSubtask.trim()} aria-label="Add subtask" style={{ gap: 4 }}>
+                  <Plus size={13} /> Add
                 </button>
-              </div>
-            </div>
-
-            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
-              <button type="button" className="btn-secondary" onClick={onClose}>
-                Cancel
-              </button>
-              <button type="submit" className="btn-primary" disabled={saving}>
-                {saving ? 'Saving...' : 'Save Changes'}
-              </button>
-            </div>
-          </form>
-        </div>
-
-        {/* Right Side: Comments Stream */}
-        <div style={{ background: 'rgba(17, 24, 39, 0.4)', padding: '24px', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
-          <div>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '16px' }}>
-              <h4 style={{ fontSize: '15px', fontWeight: 700, color: 'var(--text-main)', margin: 0 }}>
-                Discussion Stream
-              </h4>
-              <button onClick={onClose} className="btn-icon" style={{ width: '28px', height: '28px' }}>
-                <X size={16} />
-              </button>
-            </div>
-
-            {/* Comment Stream */}
-            <div style={{ maxHeight: '440px', overflowY: 'auto', paddingRight: '4px', marginBottom: '16px' }}>
-              {comments.length === 0 ? (
-                <div style={{ padding: '32px 0', textAlign: 'center', color: 'var(--text-muted)', fontSize: '13px' }}>
-                  No comments yet. Start the discussion!
-                </div>
-              ) : (
-                comments.map(c => (
-                  <div key={c.id} style={{ marginBottom: '14px', background: 'var(--bg-card)', borderRadius: '12px', padding: '12px', border: '1px solid var(--border-color)' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '6px' }}>
-                      <img
-                        src={c.user ? c.user.avatar : 'https://api.dicebear.com/7.x/avataaars/svg?seed=User'}
-                        alt={c.user ? c.user.name : 'User'}
-                        style={{ width: '22px', height: '22px', borderRadius: '50%' }}
-                      />
-                      <span style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-main)' }}>
-                        {c.user ? c.user.name : 'Unknown User'}
-                      </span>
-                      <span style={{ fontSize: '10px', color: 'var(--text-dim)', marginLeft: 'auto' }}>
-                        {new Date(c.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                      </span>
-                    </div>
-                    <p style={{ fontSize: '13px', color: 'var(--text-muted)', margin: 0, lineHeight: 1.4 }}>
-                      {c.content}
-                    </p>
-                  </div>
-                ))
-              )}
+              </form>
             </div>
           </div>
 
-          {/* New Comment Input */}
-          <form onSubmit={handlePostComment} style={{ position: 'relative' }}>
-            <input
-              type="text"
-              className="input-field"
-              placeholder="Write a comment..."
-              value={newComment}
-              onChange={(e) => setNewComment(e.target.value)}
-              style={{ paddingRight: '46px', fontSize: '13px' }}
-            />
-            <button
-              type="submit"
-              disabled={commentLoading || !newComment.trim()}
-              style={{
-                position: 'absolute',
-                right: '6px',
-                top: '50%',
-                transform: 'translateY(-50%)',
-                background: 'var(--primary)',
-                border: 'none',
-                borderRadius: '8px',
-                width: '32px',
-                height: '32px',
-                color: '#fff',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                cursor: 'pointer'
-              }}
-            >
-              <Send size={14} />
-            </button>
-          </form>
+          {/* RIGHT — Comments */}
+          <div style={{ borderLeft: '1px solid var(--border)', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+            <div style={{ padding: '16px 16px 12px', borderBottom: '1px solid var(--border)', flexShrink: 0 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 12, fontWeight: 700, color: 'var(--text-2)', textTransform: 'uppercase', letterSpacing: '0.07em' }}>
+                <MessageSquare size={13} />
+                Comments {comments.length > 0 && <span style={{ color: 'var(--primary)', fontWeight: 700 }}>{comments.length}</span>}
+              </div>
+            </div>
+
+            <div style={{ flex: 1, overflowY: 'auto', padding: 12, display: 'flex', flexDirection: 'column', gap: 8 }}>
+              {comments.length === 0 ? (
+                <div style={{ textAlign: 'center', padding: '40px 12px', color: 'var(--text-3)', fontSize: 12 }}>
+                  <MessageSquare size={24} style={{ margin: '0 auto 8px', opacity: 0.4 }} />
+                  No comments yet
+                </div>
+              ) : (
+                comments.map(c => (
+                  <div key={c.id} className="comment">
+                    <Avatar src={c.author?.avatar} name={c.author?.name} size="sm" style={{ flexShrink: 0 }} />
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ display: 'flex', alignItems: 'baseline', gap: 6, marginBottom: 4 }}>
+                        <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-1)' }}>{c.author?.name || 'User'}</span>
+                        <span style={{ fontSize: 10, color: 'var(--text-3)' }}>{timeAgo(c.created_at)}</span>
+                      </div>
+                      <p style={{ fontSize: 13, color: 'var(--text-2)', margin: 0, lineHeight: 1.5, wordBreak: 'break-word' }}>{c.content}</p>
+                    </div>
+                  </div>
+                ))
+              )}
+              <div ref={commentsEndRef} />
+            </div>
+
+            {/* Comment input */}
+            <form onSubmit={handlePostComment} style={{ padding: 12, borderTop: '1px solid var(--border)', flexShrink: 0 }}>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <Avatar src={user?.avatar} name={user?.name} size="sm" style={{ flexShrink: 0 }} />
+                <div style={{ flex: 1, position: 'relative' }}>
+                  <textarea
+                    className="input textarea"
+                    rows={2}
+                    placeholder="Write a comment..."
+                    value={newComment}
+                    onChange={e => setNewComment(e.target.value)}
+                    onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handlePostComment(e); } }}
+                    style={{ fontSize: 13, resize: 'none', paddingRight: 42 }}
+                    aria-label="Comment text"
+                  />
+                  <button
+                    type="submit"
+                    className="btn btn-primary"
+                    disabled={posting || !newComment.trim()}
+                    style={{ position: 'absolute', right: 6, bottom: 6, width: 30, height: 30, padding: 0 }}
+                    aria-label="Post comment"
+                  >
+                    <Send size={13} />
+                  </button>
+                </div>
+              </div>
+            </form>
+          </div>
         </div>
       </div>
-    </div>
+    </>
   );
 }

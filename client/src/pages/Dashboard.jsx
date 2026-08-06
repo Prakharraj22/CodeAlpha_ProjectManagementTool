@@ -1,167 +1,156 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
+import { useNavigate } from 'react-router-dom';
 import ProjectCard from '../components/ProjectCard';
 import CreateProjectModal from '../components/CreateProjectModal';
-import { Plus, Search, FolderKanban, CheckCircle2, Clock, Sparkles } from 'lucide-react';
+import { SkeletonCard } from '../components/ui/Skeleton';
+import { Plus, Search, FolderKanban, CheckCircle2, Clock, TrendingUp } from 'lucide-react';
 
-export default function Dashboard({ onSelectProject }) {
+function StatCard({ icon: Icon, value, label, color, bg }) {
+  return (
+    <div className="stat-card">
+      <div className="stat-icon" style={{ background: bg }}>
+        <Icon size={20} style={{ color }} />
+      </div>
+      <div>
+        <div className="stat-value">{value}</div>
+        <div className="stat-label">{label}</div>
+      </div>
+    </div>
+  );
+}
+
+function greeting() {
+  const h = new Date().getHours();
+  if (h < 12) return 'Good morning';
+  if (h < 17) return 'Good afternoon';
+  return 'Good evening';
+}
+
+export default function Dashboard() {
   const { user, token } = useAuth();
-  const [projects, setProjects] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const navigate = useNavigate();
+  const [projects, setProjects]       = useState([]);
+  const [loading, setLoading]         = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
-  const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
+  const [isCreateOpen, setIsCreateOpen] = useState(false);
 
   const fetchProjects = () => {
     if (!token) return;
-    fetch('/api/projects', {
-      headers: { 'Authorization': `Bearer ${token}` }
-    })
-      .then(res => res.json())
-      .then(data => {
-        if (data.projects) {
-          setProjects(data.projects);
-        }
-      })
+    fetch('/api/projects', { headers: { 'Authorization': `Bearer ${token}` } })
+      .then(r => r.json())
+      .then(data => { if (data.projects) setProjects(data.projects); })
       .catch(console.error)
       .finally(() => setLoading(false));
   };
 
-  useEffect(() => {
-    fetchProjects();
-  }, [token]);
+  useEffect(() => { fetchProjects(); }, [token]);
 
   const handleCreateProject = async (projectData) => {
     const res = await fetch('/api/projects', {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${token}`
-      },
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
       body: JSON.stringify(projectData)
     });
     const data = await res.json();
     if (res.ok && data.project) {
       setProjects(prev => [data.project, ...prev]);
+      window.__refreshSidebarProjects?.();
     }
   };
 
-  const filteredProjects = projects.filter(p =>
+  const filtered = projects.filter(p =>
     p.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
     (p.description && p.description.toLowerCase().includes(searchQuery.toLowerCase()))
   );
 
-  const totalTasks = projects.reduce((acc, p) => acc + (p.task_count || 0), 0);
-  const totalCompleted = projects.reduce((acc, p) => acc + (p.completed_task_count || 0), 0);
-  const overallRate = totalTasks > 0 ? Math.round((totalCompleted / totalTasks) * 100) : 0;
+  const totalTasks     = projects.reduce((a, p) => a + (p.task_count || 0), 0);
+  const totalCompleted = projects.reduce((a, p) => a + (p.completed_task_count || 0), 0);
+  const overallRate    = totalTasks > 0 ? Math.round((totalCompleted / totalTasks) * 100) : 0;
 
   return (
-    <div style={{ maxWidth: '1280px', margin: '0 auto', padding: '40px 24px' }}>
-      {/* Workspace Header */}
-      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: '32px', flexWrap: 'wrap', gap: '16px' }}>
+    <div style={{ maxWidth: 1300, margin: '0 auto', padding: '36px 28px' }}>
+      {/* Header */}
+      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 36, flexWrap: 'wrap', gap: 16 }}>
         <div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '6px' }}>
-            <h1 style={{ fontSize: '28px', fontWeight: 800, color: 'var(--text-main)', margin: 0, letterSpacing: '-0.02em' }}>
-              Welcome back, {user ? user.name : 'User'} 👋
-            </h1>
-          </div>
-          <p style={{ fontSize: '14px', color: 'var(--text-muted)', margin: 0 }}>
-            TaskPulse Workspace Hub — Manage team deliverables, assign tasks, and track velocity.
+          <h1 style={{ fontSize: 28, fontWeight: 800, color: 'var(--text-1)', margin: '0 0 6px', letterSpacing: '-0.025em' }}>
+            {greeting()}, {user?.name?.split(' ')[0] || 'there'} 👋
+          </h1>
+          <p style={{ fontSize: 14, color: 'var(--text-2)', margin: 0 }}>
+            Here's what's happening across your workspace today.
           </p>
         </div>
-
         <button
-          onClick={() => setIsCreateModalOpen(true)}
+          onClick={() => setIsCreateOpen(true)}
           id="create-project-btn"
-          className="btn-primary"
-          style={{ padding: '10px 20px', fontSize: '14px' }}
+          className="btn btn-primary"
+          style={{ gap: 8 }}
         >
-          <Plus size={18} /> Create Group Project
+          <Plus size={16} /> New Project
         </button>
       </div>
 
-      {/* Metrics Bar */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '16px', marginBottom: '36px' }}>
-        <div className="glass-panel" style={{ padding: '20px', display: 'flex', alignItems: 'center', gap: '16px' }}>
-          <div style={{ width: '44px', height: '44px', borderRadius: '12px', background: 'rgba(99, 102, 241, 0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-            <FolderKanban size={22} style={{ color: 'var(--primary)' }} />
-          </div>
-          <div>
-            <div style={{ fontSize: '22px', fontWeight: 800, color: 'var(--text-main)' }}>{projects.length}</div>
-            <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Active Group Projects</div>
-          </div>
-        </div>
-
-        <div className="glass-panel" style={{ padding: '20px', display: 'flex', alignItems: 'center', gap: '16px' }}>
-          <div style={{ width: '44px', height: '44px', borderRadius: '12px', background: 'rgba(245, 158, 11, 0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-            <Clock size={22} style={{ color: 'var(--accent-amber)' }} />
-          </div>
-          <div>
-            <div style={{ fontSize: '22px', fontWeight: 800, color: 'var(--text-main)' }}>{totalTasks}</div>
-            <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Total Workspace Tasks</div>
-          </div>
-        </div>
-
-        <div className="glass-panel" style={{ padding: '20px', display: 'flex', alignItems: 'center', gap: '16px' }}>
-          <div style={{ width: '44px', height: '44px', borderRadius: '12px', background: 'rgba(16, 185, 129, 0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-            <CheckCircle2 size={22} style={{ color: 'var(--accent-emerald)' }} />
-          </div>
-          <div>
-            <div style={{ fontSize: '22px', fontWeight: 800, color: 'var(--text-main)' }}>{totalCompleted} ({overallRate}%)</div>
-            <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Completed Deliverables</div>
-          </div>
-        </div>
+      {/* Stats */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 16, marginBottom: 40 }}>
+        <StatCard icon={FolderKanban} value={projects.length}     label="Active Projects"      color="var(--primary)"        bg="var(--primary-subtle)" />
+        <StatCard icon={Clock}        value={totalTasks}           label="Total Tasks"           color="var(--color-warning)"  bg="var(--warning-subtle)" />
+        <StatCard icon={CheckCircle2} value={totalCompleted}       label="Completed Tasks"       color="var(--color-success)"  bg="var(--success-subtle)" />
+        <StatCard icon={TrendingUp}   value={`${overallRate}%`}    label="Completion Rate"       color="var(--color-info)"     bg="var(--info-subtle)" />
       </div>
 
-      {/* Filter / Search Bar */}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '24px', gap: '16px' }}>
-        <h2 style={{ fontSize: '20px', fontWeight: 700, color: 'var(--text-main)', margin: 0 }}>
-          Your Team Workspaces
-        </h2>
-
-        <div style={{ position: 'relative', width: '280px' }}>
-          <Search size={16} style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-dim)' }} />
+      {/* Projects section */}
+      <div className="section-header">
+        <h2 className="section-title">Your Projects</h2>
+        <div style={{ position: 'relative', width: 260 }}>
+          <Search size={15} style={{ position: 'absolute', left: 11, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-3)', pointerEvents: 'none' }} />
           <input
             type="text"
             id="search-projects-input"
-            className="input-field"
+            className="input"
             placeholder="Search projects..."
             value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            style={{ paddingLeft: '38px', fontSize: '13px' }}
+            onChange={e => setSearchQuery(e.target.value)}
+            style={{ paddingLeft: 34, fontSize: 13 }}
+            aria-label="Search projects"
           />
         </div>
       </div>
 
-      {/* Projects Grid */}
+      {/* Grid */}
       {loading ? (
-        <div style={{ textAlign: 'center', padding: '60px 0', color: 'var(--text-muted)' }}>
-          Loading workspace projects...
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: 20 }}>
+          {[1,2,3].map(i => <SkeletonCard key={i} />)}
         </div>
-      ) : filteredProjects.length === 0 ? (
-        <div className="glass-panel" style={{ textAlign: 'center', padding: '60px 20px', borderRadius: '20px' }}>
-          <FolderKanban size={48} style={{ color: 'var(--text-dim)', marginBottom: '16px' }} />
-          <h3 style={{ fontSize: '18px', fontWeight: 700, color: 'var(--text-main)', marginBottom: '8px' }}>
-            No Workspace Projects Found
-          </h3>
-          <p style={{ fontSize: '14px', color: 'var(--text-muted)', maxWidth: '400px', margin: '0 auto 24px auto' }}>
-            {searchQuery ? "No projects match your search query." : "Get started by creating your first team workspace project."}
+      ) : filtered.length === 0 ? (
+        <div className="empty-state">
+          <div className="empty-state-icon">
+            <FolderKanban size={28} />
+          </div>
+          <p className="empty-state-title">
+            {searchQuery ? 'No matching projects' : 'No projects yet'}
           </p>
-          <button className="btn-primary" onClick={() => setIsCreateModalOpen(true)}>
-            <Plus size={16} /> Create Project Now
-          </button>
+          <p className="empty-state-desc">
+            {searchQuery
+              ? `No projects matched "${searchQuery}".`
+              : 'Create your first project to get started with your team.'}
+          </p>
+          {!searchQuery && (
+            <button className="btn btn-primary" onClick={() => setIsCreateOpen(true)}>
+              <Plus size={15} /> Create project
+            </button>
+          )}
         </div>
       ) : (
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(340px, 1fr))', gap: '24px' }}>
-          {filteredProjects.map(p => (
-            <ProjectCard key={p.id} project={p} onOpen={onSelectProject} />
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: 20 }}>
+          {filtered.map(p => (
+            <ProjectCard key={p.id} project={p} />
           ))}
         </div>
       )}
 
-      {/* Create Project Modal */}
       <CreateProjectModal
-        isOpen={isCreateModalOpen}
-        onClose={() => setIsCreateModalOpen(false)}
+        isOpen={isCreateOpen}
+        onClose={() => setIsCreateOpen(false)}
         onCreateProject={handleCreateProject}
       />
     </div>

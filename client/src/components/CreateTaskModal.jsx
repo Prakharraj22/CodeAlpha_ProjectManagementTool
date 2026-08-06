@@ -1,162 +1,150 @@
-import React, { useState } from 'react';
-import { X, PlusCircle } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { useAuth } from '../context/AuthContext';
+import { X, ListTodo } from 'lucide-react';
+import { StatusBadge, PriorityBadge } from './ui/Badge';
 
-export default function CreateTaskModal({ isOpen, initialStatus = 'todo', projectMembers = [], onClose, onCreateTask }) {
-  const [title, setTitle] = useState('');
-  const [description, setDescription] = useState('');
-  const [status, setStatus] = useState(initialStatus);
-  const [priority, setPriority] = useState('medium');
-  const [assignedTo, setAssignedTo] = useState('');
-  const [dueDate, setDueDate] = useState('');
-  const [loading, setLoading] = useState(false);
+const STATUSES  = ['todo', 'in_progress', 'review', 'done'];
+const PRIORITIES = ['low', 'medium', 'high', 'urgent'];
+
+export default function CreateTaskModal({ isOpen, onClose, onCreateTask, projectMembers = [], initialStatus = 'todo' }) {
+  const { user } = useAuth();
+  const [title, setTitle]         = useState('');
+  const [description, setDesc]    = useState('');
+  const [status, setStatus]       = useState(initialStatus);
+  const [priority, setPriority]   = useState('medium');
+  const [dueDate, setDueDate]     = useState('');
+  const [assigneeId, setAssignee] = useState('');
+  const [tagsRaw, setTagsRaw]     = useState('');
+  const [loading, setLoading]     = useState(false);
+
+  // Fix: reset status when initialStatus changes (React controlled bug fix)
+  useEffect(() => { if (isOpen) setStatus(initialStatus); }, [isOpen, initialStatus]);
+
+  // Reset form on close
+  useEffect(() => {
+    if (!isOpen) {
+      setTitle(''); setDesc(''); setPriority('medium');
+      setDueDate(''); setAssignee(''); setTagsRaw('');
+    }
+  }, [isOpen]);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    const handle = (e) => { if (e.key === 'Escape') onClose(); };
+    window.addEventListener('keydown', handle);
+    return () => window.removeEventListener('keydown', handle);
+  }, [isOpen, onClose]);
 
   if (!isOpen) return null;
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (!title.trim()) return;
-
     setLoading(true);
+    const tags = tagsRaw.split(',').map(t => t.trim()).filter(Boolean);
     try {
       await onCreateTask({
-        title: title.trim(),
-        description: description.trim(),
-        status,
-        priority,
-        assigned_to: assignedTo || null,
-        due_date: dueDate || null
+        title: title.trim(), description, status, priority,
+        due_date: dueDate || null,
+        assigned_to: assigneeId || null,   // backend uses assigned_to
+        tags
       });
-      setTitle('');
-      setDescription('');
       onClose();
-    } catch (err) {
-      console.error('Failed to create task:', err);
-    } finally {
-      setLoading(false);
-    }
+    } catch (err) { console.error(err); }
+    finally { setLoading(false); }
   };
 
+  const labelStyle = { fontSize: 12, fontWeight: 600, color: 'var(--text-2)', marginBottom: 6, display: 'block' };
+  const selectStyle = { width: '100%', background: 'var(--surface-3)', border: '1px solid var(--border-medium)', borderRadius: 'var(--radius-md)', padding: '8px 12px', color: 'var(--text-1)', fontSize: 13, cursor: 'pointer', outline: 'none' };
+
   return (
-    <div
-      style={{
-        position: 'fixed',
-        top: 0, left: 0, right: 0, bottom: 0,
-        background: 'rgba(0, 0, 0, 0.7)',
-        backdropFilter: 'blur(8px)',
-        zIndex: 1000,
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        padding: '20px'
-      }}
-      onClick={onClose}
-    >
-      <div
-        className="glass-panel animate-fade-in"
-        style={{
-          width: '100%',
-          maxWidth: '520px',
-          padding: '28px',
-          background: 'var(--bg-modal)',
-          borderRadius: '20px',
-          border: '1px solid var(--border-highlight)',
-          boxShadow: 'var(--shadow-lg)'
-        }}
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-            <PlusCircle size={22} style={{ color: 'var(--primary)' }} />
-            <h3 style={{ fontSize: '18px', fontWeight: 800, color: 'var(--text-main)', margin: 0 }}>
-              Create New Task
-            </h3>
+    <div className="modal-overlay" onClick={onClose} role="dialog" aria-modal="true" aria-label="Create task">
+      <div className="modal-panel animate-fade-in" style={{ width: '100%', maxWidth: 520 }} onClick={e => e.stopPropagation()}>
+        {/* Header */}
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '20px 24px', borderBottom: '1px solid var(--border)' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <div style={{ width: 32, height: 32, borderRadius: 10, background: 'var(--primary-subtle)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <ListTodo size={16} style={{ color: 'var(--primary)' }} />
+            </div>
+            <h3 style={{ fontSize: 16, fontWeight: 700, color: 'var(--text-1)', margin: 0 }}>Create new task</h3>
           </div>
-          <button onClick={onClose} className="btn-icon" style={{ width: '32px', height: '32px' }}>
-            <X size={16} />
-          </button>
+          <button onClick={onClose} className="btn btn-icon" aria-label="Close" style={{ width: 32, height: 32 }}><X size={16} /></button>
         </div>
 
-        <form onSubmit={handleSubmit}>
-          <div style={{ marginBottom: '16px' }}>
-            <label style={{ display: 'block', fontSize: '12px', color: 'var(--text-muted)', marginBottom: '6px', fontWeight: 600 }}>
-              Task Title *
-            </label>
-            <input
-              type="text"
-              className="input-field"
-              placeholder="e.g. Implement OAuth 2.0 login flow"
-              value={title}
-              onChange={(e) => setTitle(e.target.value)}
-              required
-            />
-          </div>
-
-          <div style={{ marginBottom: '16px' }}>
-            <label style={{ display: 'block', fontSize: '12px', color: 'var(--text-muted)', marginBottom: '6px', fontWeight: 600 }}>
-              Description
-            </label>
-            <textarea
-              className="input-field"
-              rows={3}
-              placeholder="Task details and acceptance criteria..."
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-            />
-          </div>
-
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '20px' }}>
-            <div>
-              <label style={{ display: 'block', fontSize: '12px', color: 'var(--text-muted)', marginBottom: '6px', fontWeight: 600 }}>Initial Column</label>
-              <select className="input-field" value={status} onChange={(e) => setStatus(e.target.value)}>
-                <option value="todo">To Do</option>
-                <option value="in_progress">In Progress</option>
-                <option value="review">Under Review</option>
-                <option value="done">Completed</option>
-              </select>
-            </div>
-
-            <div>
-              <label style={{ display: 'block', fontSize: '12px', color: 'var(--text-muted)', marginBottom: '6px', fontWeight: 600 }}>Priority</label>
-              <select className="input-field" value={priority} onChange={(e) => setPriority(e.target.value)}>
-                <option value="low">Low</option>
-                <option value="medium">Medium</option>
-                <option value="high">High</option>
-                <option value="urgent">Urgent</option>
-              </select>
-            </div>
-
-            <div>
-              <label style={{ display: 'block', fontSize: '12px', color: 'var(--text-muted)', marginBottom: '6px', fontWeight: 600 }}>Assign To</label>
-              <select className="input-field" value={assignedTo} onChange={(e) => setAssignedTo(e.target.value)}>
-                <option value="">Unassigned</option>
-                {projectMembers.map(m => (
-                  <option key={m.user_id} value={m.user_id}>
-                    {m.name}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            <div>
-              <label style={{ display: 'block', fontSize: '12px', color: 'var(--text-muted)', marginBottom: '6px', fontWeight: 600 }}>Due Date</label>
+        <div style={{ padding: 24 }}>
+          <form onSubmit={handleSubmit}>
+            {/* Title */}
+            <div style={{ marginBottom: 16 }}>
+              <label style={labelStyle} htmlFor="task-title">Task title *</label>
               <input
-                type="date"
-                className="input-field"
-                value={dueDate}
-                onChange={(e) => setDueDate(e.target.value)}
+                id="task-title" type="text" className="input"
+                placeholder="e.g. Set up CI/CD pipeline" value={title}
+                onChange={e => setTitle(e.target.value)} required autoFocus
               />
             </div>
-          </div>
 
-          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px' }}>
-            <button type="button" className="btn-secondary" onClick={onClose}>
-              Cancel
-            </button>
-            <button type="submit" className="btn-primary" disabled={loading || !title.trim()}>
-              {loading ? 'Creating...' : 'Create Task'}
-            </button>
-          </div>
-        </form>
+            {/* Description */}
+            <div style={{ marginBottom: 16 }}>
+              <label style={labelStyle} htmlFor="task-desc">Description</label>
+              <textarea
+                id="task-desc" className="input textarea" rows={3}
+                placeholder="Add more context or acceptance criteria..."
+                value={description} onChange={e => setDesc(e.target.value)}
+              />
+            </div>
+
+            {/* Row: Status + Priority */}
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 16 }}>
+              <div>
+                <label style={labelStyle} htmlFor="task-status">Status</label>
+                <select id="task-status" className="input select" value={status} onChange={e => setStatus(e.target.value)}>
+                  {STATUSES.map(s => <option key={s} value={s}>{s.replace('_', ' ')}</option>)}
+                </select>
+              </div>
+              <div>
+                <label style={labelStyle} htmlFor="task-priority">Priority</label>
+                <select id="task-priority" className="input select" value={priority} onChange={e => setPriority(e.target.value)}>
+                  {PRIORITIES.map(p => <option key={p} value={p}>{p}</option>)}
+                </select>
+              </div>
+            </div>
+
+            {/* Row: Assignee + Due date */}
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 16 }}>
+              <div>
+                <label style={labelStyle} htmlFor="task-assignee">Assignee</label>
+                <select id="task-assignee" className="input select" value={assigneeId} onChange={e => setAssignee(e.target.value)}>
+                  <option value="">Unassigned</option>
+                  {projectMembers.map(m => (
+                    <option key={m.user_id} value={m.user_id}>{m.name}{m.user_id === user?.id ? ' (you)' : ''}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label style={labelStyle} htmlFor="task-due">Due date</label>
+                <input id="task-due" type="date" className="input" value={dueDate} onChange={e => setDueDate(e.target.value)} />
+              </div>
+            </div>
+
+            {/* Tags */}
+            <div style={{ marginBottom: 24 }}>
+              <label style={labelStyle} htmlFor="task-tags">Tags <span style={{ color: 'var(--text-3)', fontWeight: 400 }}>(comma-separated)</span></label>
+              <input
+                id="task-tags" type="text" className="input"
+                placeholder="e.g. backend, api, urgent"
+                value={tagsRaw} onChange={e => setTagsRaw(e.target.value)}
+              />
+            </div>
+
+            {/* Actions */}
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10 }}>
+              <button type="button" className="btn btn-secondary" onClick={onClose}>Cancel</button>
+              <button type="submit" id="create-task-submit-btn" className="btn btn-primary" disabled={loading || !title.trim()}>
+                {loading ? 'Creating...' : 'Create task'}
+              </button>
+            </div>
+          </form>
+        </div>
       </div>
     </div>
   );

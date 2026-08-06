@@ -1,116 +1,60 @@
 import React from 'react';
-import { Users, CheckCircle2, ArrowRight } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import { CheckCircle2, Users, ArrowUpRight } from 'lucide-react';
+import { AvatarStack } from './ui/Avatar';
 
-export default function ProjectCard({ project, onOpen }) {
+export default function ProjectCard({ project }) {
+  const navigate = useNavigate();
   const { id, name, description, members = [], task_count = 0, completed_task_count = 0 } = project;
   const progress = task_count > 0 ? Math.round((completed_task_count / task_count) * 100) : 0;
 
+  const progressColor = progress === 100 ? 'var(--color-success)' : progress > 60 ? 'var(--primary)' : 'var(--color-warning)';
+
   return (
     <div
-      onClick={() => onOpen(id)}
+      className="project-card"
+      onClick={() => navigate(`/projects/${id}`)}
       id={`project-card-${id}`}
-      className="glass-panel"
-      style={{
-        padding: '24px',
-        cursor: 'pointer',
-        transition: 'all 0.25s cubic-bezier(0.4, 0, 0.2, 1)',
-        position: 'relative',
-        display: 'flex',
-        flexDirection: 'column',
-        justifyContent: 'space-between',
-        height: '220px',
-        background: 'var(--bg-card)',
-        border: '1px solid var(--border-color)'
-      }}
-      onMouseEnter={(e) => {
-        e.currentTarget.style.transform = 'translateY(-4px)';
-        e.currentTarget.style.borderColor = 'var(--border-highlight)';
-        e.currentTarget.style.boxShadow = 'var(--shadow-glow)';
-      }}
-      onMouseLeave={(e) => {
-        e.currentTarget.style.transform = 'translateY(0)';
-        e.currentTarget.style.borderColor = 'var(--border-color)';
-        e.currentTarget.style.boxShadow = 'none';
-      }}
+      role="button"
+      tabIndex={0}
+      onKeyDown={e => e.key === 'Enter' && navigate(`/projects/${id}`)}
+      aria-label={`Open project: ${name}`}
     >
+      {/* Top */}
       <div>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
-          <h3 style={{ fontSize: '18px', fontWeight: 700, color: 'var(--text-main)', margin: 0 }}>
-            {name}
-          </h3>
-          <ArrowRight size={18} style={{ color: 'var(--primary)' }} />
+        <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 8, marginBottom: 8 }}>
+          <h3 style={{ fontSize: 16, fontWeight: 700, color: 'var(--text-1)', margin: 0, lineHeight: 1.3 }}>{name}</h3>
+          <ArrowUpRight size={16} style={{ color: 'var(--text-3)', flexShrink: 0, marginTop: 2 }} />
         </div>
-        <p style={{ fontSize: '13px', color: 'var(--text-muted)', lineHeight: 1.5, margin: 0, display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
-          {description || 'No workspace description provided.'}
+        <p style={{ fontSize: 13, color: 'var(--text-2)', lineHeight: 1.5, margin: 0 }} className="line-clamp-2">
+          {description || 'No description provided.'}
         </p>
       </div>
 
+      {/* Progress */}
       <div>
-        {/* Progress Bar */}
-        <div style={{ marginBottom: '16px' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', color: 'var(--text-muted)', marginBottom: '6px' }}>
-            <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-              <CheckCircle2 size={13} style={{ color: 'var(--accent-emerald)' }} /> {completed_task_count} of {task_count} tasks
-            </span>
-            <span style={{ fontWeight: 700, color: 'var(--primary)' }}>{progress}%</span>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 12, color: 'var(--text-2)' }}>
+            <CheckCircle2 size={13} style={{ color: 'var(--color-success)' }} />
+            <span>{completed_task_count} of {task_count} tasks</span>
           </div>
-          <div style={{ width: '100%', height: '6px', background: 'rgba(148, 163, 184, 0.15)', borderRadius: '3px', overflow: 'hidden' }}>
-            <div
-              style={{
-                width: `${progress}%`,
-                height: '100%',
-                background: 'linear-gradient(90deg, var(--primary) 0%, var(--accent-emerald) 100%)',
-                borderRadius: '3px',
-                transition: 'width 0.4s ease'
-              }}
-            />
-          </div>
+          <span style={{ fontSize: 12, fontWeight: 700, color: progressColor }}>{progress}%</span>
         </div>
+        <div className="progress-bar">
+          <div
+            className="progress-bar-fill primary"
+            style={{ width: `${progress}%`, background: `linear-gradient(90deg, ${progressColor}, ${progressColor}88)` }}
+          />
+        </div>
+      </div>
 
-        {/* Footer: Member Avatars */}
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-          <div style={{ display: 'flex', alignItems: 'center' }}>
-            {members.slice(0, 4).map((m, i) => (
-              <img
-                key={m.id || i}
-                src={m.avatar}
-                alt={m.name}
-                title={m.name}
-                style={{
-                  width: '28px',
-                  height: '28px',
-                  borderRadius: '50%',
-                  objectFit: 'cover',
-                  border: '2px solid var(--bg-card)',
-                  marginLeft: i > 0 ? '-8px' : '0'
-                }}
-              />
-            ))}
-            {members.length > 4 && (
-              <div
-                style={{
-                  width: '28px',
-                  height: '28px',
-                  borderRadius: '50%',
-                  background: 'rgba(99, 102, 241, 0.15)',
-                  color: 'var(--primary)',
-                  fontSize: '11px',
-                  fontWeight: 700,
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  border: '2px solid var(--bg-card)',
-                  marginLeft: '-8px'
-                }}
-              >
-                +{members.length - 4}
-              </div>
-            )}
-          </div>
-          <span style={{ fontSize: '12px', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '4px' }}>
-            <Users size={13} /> {members.length} {members.length === 1 ? 'member' : 'members'}
-          </span>
-        </div>
+      {/* Footer */}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+        <AvatarStack users={members} max={4} size="sm" />
+        <span style={{ fontSize: 12, color: 'var(--text-3)', display: 'flex', alignItems: 'center', gap: 4 }}>
+          <Users size={12} />
+          {members.length} {members.length === 1 ? 'member' : 'members'}
+        </span>
       </div>
     </div>
   );

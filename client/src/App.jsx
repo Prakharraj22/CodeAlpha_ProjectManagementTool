@@ -1,146 +1,135 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
+import { BrowserRouter, Routes, Route, Navigate, useNavigate } from 'react-router-dom';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { SocketProvider } from './context/SocketContext';
-import Navbar from './components/Navbar';
-import CommandPalette from './components/CommandPalette';
-import Login from './pages/Login';
-import Register from './pages/Register';
+import AppShell from './components/layout/AppShell';
 import Dashboard from './pages/Dashboard';
 import ProjectBoard from './pages/ProjectBoard';
+import Login from './pages/Login';
+import Register from './pages/Register';
+import CommandPalette from './components/CommandPalette';
+import NotificationPanel from './components/NotificationPanel';
+import CreateProjectModal from './components/CreateProjectModal';
 
-function MainApp() {
-  const { user, token, loading } = useAuth();
-  const [authView, setAuthView] = useState('login'); // 'login' | 'register'
-  const [currentProjectId, setCurrentProjectId] = useState(null);
-  const [activeProject, setActiveProject] = useState(null);
-  const [projectsList, setProjectsList] = useState([]);
-  const [isCommandPaletteOpen, setIsCommandPaletteOpen] = useState(false);
-  const [isDarkMode, setIsDarkMode] = useState(true);
+// Auth pages rendered outside AppShell
+function AuthPages() {
+  const [view, setView] = useState('login');
+  return view === 'login'
+    ? <Login onSwitchToRegister={() => setView('register')} />
+    : <Register onSwitchToLogin={() => setView('login')} />;
+}
 
-  // Sync Theme attribute
+// Authenticated app — requires user
+function AuthenticatedApp() {
+  const { token } = useAuth();
+  const navigate = useNavigate();
+
+  const [isDarkMode, setIsDarkMode]         = useState(true);
+  const [cmdOpen, setCmdOpen]               = useState(false);
+  const [notifOpen, setNotifOpen]           = useState(false);
+  const [createProjOpen, setCreateProjOpen] = useState(false);
+  const [projects, setProjects]             = useState([]);
+
+  // Apply theme attribute
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', isDarkMode ? 'dark' : 'light');
   }, [isDarkMode]);
 
-  // Fetch projects list for command palette
+  // Global Cmd/Ctrl+K
   useEffect(() => {
-    if (user && token) {
-      fetch('/api/projects', { headers: { 'Authorization': `Bearer ${token}` } })
-        .then(res => res.json())
-        .then(data => {
-          if (data.projects) setProjectsList(data.projects);
-        })
-        .catch(console.error);
-    }
-  }, [user, token, currentProjectId]);
+    const handle = (e) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
+        e.preventDefault();
+        setCmdOpen(o => !o);
+      }
+    };
+    window.addEventListener('keydown', handle);
+    return () => window.removeEventListener('keydown', handle);
+  }, []);
 
-  const toggleTheme = () => {
-    setIsDarkMode(prev => !prev);
+  const fetchProjects = useCallback(() => {
+    if (!token) return;
+    fetch('/api/projects', { headers: { Authorization: `Bearer ${token}` } })
+      .then(r => r.json())
+      .then(d => { if (d.projects) setProjects(d.projects); })
+      .catch(console.error);
+  }, [token]);
+
+  useEffect(() => { fetchProjects(); }, [fetchProjects]);
+
+  const handleCreateProject = async (data) => {
+    const res = await fetch('/api/projects', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify(data),
+    });
+    const d = await res.json();
+    if (d.project) {
+      setProjects(p => [d.project, ...p]);
+      window.__refreshSidebarProjects?.();
+    }
   };
 
-  if (loading) {
-    return (
-      <div
-        style={{
-          minHeight: '100vh',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          background: '#090d16',
-          color: '#94a3b8',
-          fontFamily: 'sans-serif'
-        }}
-      >
-        <div style={{ textAlign: 'center' }}>
-          <div
-            style={{
-              width: '44px',
-              height: '44px',
-              borderRadius: '50%',
-              border: '3px solid rgba(99, 102, 241, 0.2)',
-              borderTopColor: '#6366f1',
-              animation: 'spin 0.8s linear infinite',
-              margin: '0 auto 16px auto'
-            }}
-          />
-          <style>{`@keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }`}</style>
-          <div style={{ fontWeight: 700, fontSize: '15px', color: '#f8fafc' }}>
-            Initializing TaskPulse Enterprise...
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  if (!user) {
-    return authView === 'login' ? (
-      <Login onSwitchToRegister={() => setAuthView('register')} />
-    ) : (
-      <Register onSwitchToLogin={() => setAuthView('login')} />
-    );
-  }
+  const shellProps = {
+    isDarkMode,
+    onToggleTheme: () => setIsDarkMode(d => !d),
+    onOpenCommandPalette: () => setCmdOpen(true),
+    onOpenNotifications: () => setNotifOpen(true),
+    onCreateProject: () => setCreateProjOpen(true),
+  };
 
   return (
-    <SocketProvider>
-      <div style={{ minHeight: '100vh', background: 'var(--bg-dark)', color: 'var(--text-main)' }}>
-        <Navbar
-          currentProject={activeProject}
-          onGoDashboard={() => {
-            setCurrentProjectId(null);
-            setActiveProject(null);
-          }}
-          onSelectProject={(id) => {
-            setCurrentProjectId(id);
-          }}
-          onOpenCommandPalette={() => setIsCommandPaletteOpen(true)}
-          isDarkMode={isDarkMode}
-          onToggleTheme={toggleTheme}
-        />
+    <>
+      <Routes>
+        <Route path="/" element={<AppShell {...shellProps}><Dashboard /></AppShell>} />
+        <Route path="/projects/:projectId" element={<AppShell {...shellProps}><ProjectBoard /></AppShell>} />
+        <Route path="*" element={<Navigate to="/" replace />} />
+      </Routes>
 
-        <main>
-          {currentProjectId ? (
-            <ProjectBoard
-              projectId={currentProjectId}
-              onGoDashboard={() => {
-                setCurrentProjectId(null);
-                setActiveProject(null);
-              }}
-              onProjectLoaded={(proj) => setActiveProject(proj)}
-            />
-          ) : (
-            <Dashboard
-              onSelectProject={(id) => {
-                setCurrentProjectId(id);
-              }}
-            />
-          )}
-        </main>
+      {/* Global overlays */}
+      <CommandPalette
+        isOpen={cmdOpen}
+        onClose={() => setCmdOpen(false)}
+        projects={projects}
+        onSelectProject={(id) => {
+          if (id) navigate(`/projects/${id}`);
+          else navigate('/');
+        }}
+        onCreateProject={() => { setCreateProjOpen(true); setCmdOpen(false); }}
+        onCreateTask={() => setCmdOpen(false)}
+        onToggleTheme={() => setIsDarkMode(d => !d)}
+        isDarkMode={isDarkMode}
+      />
 
-        <CommandPalette
-          isOpen={isCommandPaletteOpen}
-          onClose={() => setIsCommandPaletteOpen(false)}
-          projects={projectsList}
-          onSelectProject={(id) => setCurrentProjectId(id)}
-          onCreateProject={() => {
-            setCurrentProjectId(null);
-          }}
-          onCreateTask={() => {
-            if (projectsList.length > 0 && !currentProjectId) {
-              setCurrentProjectId(projectsList[0].id);
-            }
-          }}
-          onToggleTheme={toggleTheme}
-          isDarkMode={isDarkMode}
-        />
-      </div>
-    </SocketProvider>
+      <NotificationPanel
+        isOpen={notifOpen}
+        onClose={() => setNotifOpen(false)}
+      />
+
+      <CreateProjectModal
+        isOpen={createProjOpen}
+        onClose={() => setCreateProjOpen(false)}
+        onCreateProject={handleCreateProject}
+      />
+    </>
   );
+}
+
+// Root — decides auth vs app
+function Root() {
+  const { user } = useAuth();
+  if (!user) return <AuthPages />;
+  return <AuthenticatedApp />;
 }
 
 export default function App() {
   return (
     <AuthProvider>
-      <MainApp />
+      <SocketProvider>
+        <BrowserRouter>
+          <Root />
+        </BrowserRouter>
+      </SocketProvider>
     </AuthProvider>
   );
 }
